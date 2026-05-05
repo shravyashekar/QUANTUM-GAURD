@@ -556,46 +556,97 @@
     a.click();
   }
 
-  // ── FILE PROCESSING ────────────────────────────────────────────────
+// ✅ KEEP THIS AT TOP LEVEL (GLOBAL)
+function refreshAll() {
+  updateSummary();
+  updateDonut();
+  updateTimeline();
+  updateNodes();
+  updateTopErrors();
+  updateSrcFilter();
+  renderTable();
+}
+// FUNCTION PROCESSING
  function processFile(file) {
   const info = document.getElementById('fileInfo');
   info.style.display = 'block';
-  info.textContent   = `⬤ ${file.name}  (${Math.round(file.size / 1024)} KB)`;
+  info.textContent = `⬤ ${file.name} (${Math.round(file.size / 1024)} KB)`;
 
   const reader = new FileReader();
 
   reader.onload = e => {
 
-    // STEP 1: Parse logs FIRST
+    // ✅ STEP 1: Parse logs FIRST
     try {
       logs = parseJsonLogs(JSON.parse(e.target.result));
     } catch (_) {
       logs = parseLogs(e.target.result);
     }
 
+    // ❗ SAFETY: remove empty logs (THIS FIXES YOUR 500 ERROR)
+    logs = logs.filter(l => 
+      (l.message && l.message.trim() !== "") ||
+      (l.raw && l.raw.trim() !== "")
+    );
+
+    // ✅ STEP 2: Show original logs
     refreshAll();
 
-    // STEP 2: Send FULL logs to backend
-    const combinedLogs = logs.map(l => l.message).join("\n");
+    // ❗ EXTRA SAFETY: stop if nothing valid
+    if (logs.length === 0) {
+      console.warn("No valid logs found.");
+      return;
+    }
 
-    fetch("http://127.0.0.1:8000/analyze", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        text: combinedLogs
-      })
-    })
-    .then(res => res.json())
-    .then(data => {
-      console.log("NLP RESPONSE:", data);
+    // ✅ STEP 3: Prepare logs
+const combinedLogs = logs
+  .map(l => l.message || l.raw || "")
+  .filter(msg => msg && msg.trim() !== "")
+  .join("\n");
 
-      if (data.logs) {
-        logs = data.logs;   // replace with NLP processed logs
-        refreshAll();       // update UI again
+// 🔥 Check before sending
+if (!combinedLogs || combinedLogs.trim() === "") {
+  console.error("❌ EMPTY DATA — NOT SENDING TO BACKEND");
+  return;
+}
+
+// ✅ NOW log it
+console.log("SENDING TO BACKEND:", combinedLogs);
+
+// ✅ Send to backend
+fetch("http://127.0.0.1:8000/analyze", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json"
+  },
+  body: JSON.stringify({
+    text: combinedLogs
+  })
+})
+    .then(res => {
+      if (!res.ok) {
+        throw new Error("Backend returned error " + res.status);
       }
+      return res.json();
     })
+    .then(data => {
+  console.log("NLP RESPONSE:", data);
+
+  if (data.logs) {
+
+    const nlpLogs = data.logs.map(l => ({
+      level: l.level || "INFO"
+    }));
+
+    // ✅ KEEP original logs, only update level
+    logs = logs.map((log, i) => ({
+      ...log,
+      level: nlpLogs[i]?.level || log.level
+    }));
+
+    refreshAll(); // 🔥 update UI
+  }
+})
     .catch(err => {
       console.error("Backend error:", err);
     });
@@ -603,11 +654,26 @@
 
   reader.readAsText(file);
 }
-  document.getElementById('fileInput').addEventListener('change', e => { if (e.target.files[0]) processFile(e.target.files[0]); });
-  const dz = document.getElementById('dropZone');
-  dz.addEventListener('dragover',  e  => { e.preventDefault(); dz.classList.add('drag'); });
-  dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
-  dz.addEventListener('drop',      e  => { e.preventDefault(); dz.classList.remove('drag'); if (e.dataTransfer.files[0]) processFile(e.dataTransfer.files[0]); });
+ document.getElementById('fileInput').addEventListener('change', e => {
+  if (e.target.files[0]) processFile(e.target.files[0]);
+});
+
+const dz = document.getElementById('dropZone');
+
+dz.addEventListener('dragover', e => {
+  e.preventDefault();
+  dz.classList.add('drag');
+});
+
+dz.addEventListener('dragleave', () => {
+  dz.classList.remove('drag');
+});
+
+dz.addEventListener('drop', e => {
+  e.preventDefault();
+  dz.classList.remove('drag');
+  if (e.dataTransfer.files[0]) processFile(e.dataTransfer.files[0]);
+});
 
   // ── DEMO DATA ──────────────────────────────────────────────────────
   const DEMO = `2025-05-20 10:15:23.112 INFO Interceptor Proxy started on port 8000
