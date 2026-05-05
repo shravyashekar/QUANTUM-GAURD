@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+spacy
+transformers
+torch
+mitmproxy
+requests

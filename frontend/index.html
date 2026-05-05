@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>QuantumGuard — Log Analyzer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:      #0a0e1a;
+      --bg2:     #0f1525;
+      --bg3:     #131929;
+      --bg4:     #1a2035;
+      --border:  #1e2d4a;
+      --border2: #243658;
+      --blue:    #4fc3f7;
+      --blue2:   #29b6f6;
+      --blue3:   #0288d1;
+      --green:   #00e5a0;
+      --red:     #ff4757;
+      --amber:   #ffa502;
+      --purple:  #a55eea;
+      --text:    #c9d4f0;
+      --text2:   #7b8fba;
+      --text3:   #4a5a80;
+      --font-mono: 'JetBrains Mono', monospace;
+      --font-ui:   'Rajdhani', sans-serif;
+    }
+    html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--font-ui); font-size: 14px; overflow: hidden; }
+
+    /* LAYOUT */
+    .app { display: grid; grid-template-columns: 200px 1fr; grid-template-rows: 52px 1fr; height: 100vh; }
+
+    /* TOP BAR */
+    .topbar {
+      grid-column: 1 / -1; background: var(--bg2); border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; padding: 0 20px; gap: 16px; z-index: 10; position: relative;
+    }
+    .topbar::after {
+      content: ''; position: absolute; bottom: -1px; left: 0; right: 0; height: 1px;
+      background: linear-gradient(90deg, transparent, var(--blue3), transparent); opacity: 0.4;
+    }
+    .logo { font-size: 18px; font-weight: 700; letter-spacing: 2px; color: var(--blue); font-family: var(--font-ui); }
+    .logo .accent { color: var(--green); }
+    .logo .dim    { color: var(--text2); font-size: 14px; }
+    .logo-sub     { font-size: 10px; color: var(--text3); letter-spacing: 1px; font-family: var(--font-mono); }
+    .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 20px; font-family: var(--font-mono); font-size: 11px; }
+    .status-pill  { display: flex; align-items: center; gap: 6px; background: rgba(0,229,160,.06); border: 1px solid rgba(0,229,160,.15); border-radius: 4px; padding: 4px 10px; }
+    .status-dot   { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+    #clock { color: var(--text3); }
+
+    /* SIDEBAR */
+    .sidebar { background: var(--bg2); border-right: 1px solid var(--border); padding: 16px 0; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
+    .nav-item { display: flex; align-items: center; gap: 10px; padding: 9px 18px; cursor: pointer; color: var(--text2); font-size: 13px; font-weight: 500; letter-spacing: .5px; border-left: 2px solid transparent; transition: all .15s; user-select: none; }
+    .nav-item:hover  { background: var(--bg4); color: var(--text); border-left-color: var(--border2); }
+    .nav-item.active { background: rgba(79,195,247,.08); color: var(--blue); border-left-color: var(--blue); }
+    .nav-icon { font-size: 15px; width: 18px; text-align: center; }
+    .sidebar-divider { height: 1px; background: var(--border); margin: 8px 14px; }
+    .quick-filters { margin-top: auto; padding: 12px 14px; border-top: 1px solid var(--border); }
+    .qf-title { font-size: 10px; letter-spacing: 1px; color: var(--text3); margin-bottom: 8px; font-family: var(--font-mono); text-transform: uppercase; }
+    .qf-item  { display: flex; align-items: center; justify-content: space-between; padding: 5px 4px; cursor: pointer; border-radius: 4px; transition: background .1s; }
+    .qf-item:hover { background: var(--bg4); }
+    .qf-label { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; }
+    .qf-dot   { width: 8px; height: 8px; border-radius: 50%; }
+    .qf-count { font-size: 11px; font-family: var(--font-mono); color: var(--text3); }
+
+    /* MAIN */
+    .main { background: var(--bg); overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+    .main::-webkit-scrollbar { width: 5px; }
+    .main::-webkit-scrollbar-track { background: var(--bg); }
+    .main::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+    .row { display: flex; gap: 10px; align-items: flex-start; }
+
+    /* PANEL */
+    .panel { background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 12px; position: relative; overflow: hidden; }
+    .panel::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px; background: linear-gradient(90deg, transparent, var(--border2), transparent); }
+    .panel-title { font-size: 10px; letter-spacing: 1.5px; color: var(--text3); margin-bottom: 10px; font-family: var(--font-mono); text-transform: uppercase; }
+
+    /* UPLOAD PANEL */
+    .upload-panel { width: 200px; flex-shrink: 0; }
+    .drop-zone { border: 1px dashed var(--border2); border-radius: 6px; padding: 14px 10px; text-align: center; cursor: pointer; transition: all .2s; position: relative; }
+    .drop-zone:hover, .drop-zone.drag { border-color: var(--blue); background: rgba(79,195,247,.04); }
+    .drop-zone input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+    .drop-icon { font-size: 22px; margin-bottom: 6px; color: var(--blue2); }
+    .drop-text { font-size: 10px; color: var(--text3); line-height: 1.4; }
+    .btn { background: var(--blue3); color: #fff; border: none; border-radius: 4px; padding: 6px 14px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: var(--font-ui); letter-spacing: .5px; margin-top: 7px; width: 100%; transition: background .15s; }
+    .btn:hover { background: var(--blue2); }
+    .file-info { margin-top: 8px; font-size: 10px; color: var(--green); font-family: var(--font-mono); display: none; word-break: break-all; }
+    .sum-list  { display: flex; flex-direction: column; gap: 4px; font-family: var(--font-mono); font-size: 11px; }
+    .sum-row   { display: flex; justify-content: space-between; align-items: center; }
+    .sum-label-text { color: var(--text3); }
+    .c-info  { color: var(--blue); }
+    .c-warn  { color: var(--amber); }
+    .c-err   { color: var(--red); }
+    .c-dbg   { color: var(--purple); }
+    .c-total { color: var(--text); }
+    .sum-divider { height: 1px; background: var(--border); margin: 3px 0; }
+
+    /* VISUALIZATION */
+    .vis-panel { flex: 1; min-width: 0; }
+    .node-graph { display: flex; align-items: center; justify-content: center; gap: 5px; flex-wrap: wrap; padding: 4px 0; margin-bottom: 8px; }
+    .node { background: var(--bg3); border: 1px solid var(--border2); border-radius: 6px; padding: 8px; text-align: center; min-width: 70px; transition: border-color .2s, box-shadow .2s; }
+    .node:hover   { border-color: var(--blue); }
+    .node.s-info  { border-color: rgba(79,195,247,.4); }
+    .node.s-warn  { border-color: rgba(255,165,2,.4); }
+    .node.s-error { border-color: rgba(255,71,87,.5); box-shadow: 0 0 10px rgba(255,71,87,.12); }
+    .node-icon   { font-size: 16px; margin-bottom: 3px; }
+    .node-name   { font-size: 9px; font-weight: 600; letter-spacing: .5px; color: var(--text); font-family: var(--font-ui); }
+    .node-status { font-size: 8px; font-family: var(--font-mono); margin-top: 2px; }
+    .arrow       { color: var(--border2); font-size: 14px; flex-shrink: 0; }
+    .timeline-wrap { position: relative; height: 60px; margin-top: 2px; }
+
+    /* ALERTS */
+    .alerts-panel { width: 190px; flex-shrink: 0; }
+    .donut-wrap { position: relative; width: 100px; height: 100px; margin: 0 auto 10px; }
+    .donut-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; }
+    .donut-total { font-size: 20px; font-weight: 700; font-family: var(--font-mono); color: var(--text); }
+    .donut-sub   { font-size: 9px; color: var(--text3); font-family: var(--font-mono); }
+    .alert-items { display: flex; flex-direction: column; gap: 5px; }
+    .alert-row   { display: flex; align-items: center; justify-content: space-between; font-size: 12px; }
+    .alert-dot-label { display: flex; align-items: center; gap: 6px; }
+    .alert-bullet    { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+    .alert-count     { font-family: var(--font-mono); font-size: 11px; font-weight: 600; }
+    .top-errors  { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 10px; }
+    .err-item    { display: flex; align-items: center; justify-content: space-between; padding: 3px 0; gap: 6px; }
+    .err-msg     { font-size: 10px; font-family: var(--font-mono); color: var(--text2); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .err-bar-wrap{ width: 44px; height: 3px; background: var(--bg4); border-radius: 2px; flex-shrink: 0; }
+    .err-bar     { height: 3px; border-radius: 2px; background: var(--red); }
+    .err-n       { font-size: 10px; font-family: var(--font-mono); color: var(--red); min-width: 18px; text-align: right; }
+
+    /* LOG VIEWER — expanded */
+    .log-panel    { width: 100%; flex: 1; }
+    .log-header   { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+    .log-controls { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+    .search-box   { display: flex; align-items: center; background: var(--bg3); border: 1px solid var(--border); border-radius: 4px; padding: 0 10px; gap: 6px; flex: 1; min-width: 140px; }
+    .search-box input { background: none; border: none; outline: none; color: var(--text); font-size: 12px; font-family: var(--font-mono); width: 100%; padding: 6px 0; }
+    .search-box input::placeholder { color: var(--text3); }
+    .filter-sel { background: var(--bg3); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: 12px; padding: 6px 10px; outline: none; font-family: var(--font-ui); cursor: pointer; }
+    .icon-btn   { background: none; border: 1px solid var(--border); border-radius: 4px; color: var(--text3); font-size: 11px; padding: 6px 10px; cursor: pointer; font-family: var(--font-ui); transition: all .15s; }
+    .icon-btn:hover { border-color: var(--border2); color: var(--text); }
+
+    /* KEY CHANGE: dynamically fills all remaining vertical space */
+    .table-wrap {
+      height: calc(100vh - 52px - 260px - 80px);
+      min-height: 320px;
+      overflow-y: auto;
+    }
+    .table-wrap::-webkit-scrollbar { width: 4px; }
+    .table-wrap::-webkit-scrollbar-track { background: var(--bg); }
+    .table-wrap::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+    .log-table  { width: 100%; border-collapse: collapse; font-size: 11px; font-family: var(--font-mono); }
+    .log-table th { color: var(--text3); font-weight: 500; padding: 6px 8px; border-bottom: 1px solid var(--border); text-align: left; letter-spacing: .5px; font-size: 10px; white-space: nowrap; position: sticky; top: 0; background: var(--bg2); z-index: 1; }
+    .log-table td { padding: 6px 8px; border-bottom: 1px solid rgba(30,45,74,.4); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 300px; }
+    .log-table tr:hover td { background: var(--bg3); }
+    .badge         { display: inline-block; padding: 2px 7px; border-radius: 3px; font-size: 10px; font-weight: 600; letter-spacing: .5px; }
+    .badge-INFO    { background: rgba(79,195,247,.12);  color: var(--blue); }
+    .badge-WARN,
+    .badge-WARNING { background: rgba(255,165,2,.12);   color: var(--amber); }
+    .badge-ERROR   { background: rgba(255,71,87,.12);   color: var(--red); }
+    .badge-DEBUG   { background: rgba(165,94,234,.12);  color: var(--purple); }
+    .empty-state { text-align: center; padding: 40px 20px; color: var(--text3); font-family: var(--font-mono); font-size: 12px; }
+    .empty-icon  { font-size: 32px; margin-bottom: 8px; opacity: .3; }
+    ::-webkit-scrollbar       { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- TOP BAR -->
+  <header class="topbar">
+    <div>
+      <div class="logo">QUANTUM<span class="accent">GUARD</span> <span class="dim">LOG ANALYZER</span></div>
+      <div class="logo-sub">Visualize · Monitor · Analyze</div>
+    </div>
+    <div class="topbar-right">
+      <div class="status-pill">
+        <span class="status-dot"></span>
+        <span id="sys-status">Idle — Upload a log file</span>
+      </div>
+      <span id="clock"></span>
+    </div>
+  </header>
+
+  <!-- SIDEBAR -->
+  <nav class="sidebar">
+    <div class="nav-item active"><span class="nav-icon">◈</span> Dashboard</div>
+    <div class="nav-item"><span class="nav-icon">≡</span> Logs</div>
+    <div class="nav-item"><span class="nav-icon">◷</span> Timeline</div>
+    <div class="nav-item"><span class="nav-icon">◎</span> Analytics</div>
+    <div class="nav-item"><span class="nav-icon">⚠</span> Alerts</div>
+    <div class="nav-item"><span class="nav-icon">⬡</span> Reports</div>
+    <div class="sidebar-divider"></div>
+    <div class="nav-item"><span class="nav-icon">⚙</span> Settings</div>
+    <div class="nav-item"><span class="nav-icon">?</span> Help</div>
+    <div class="quick-filters">
+      <div class="qf-title">Quick Filters</div>
+      <div class="qf-item" onclick="filterLevel('INFO')">
+        <span class="qf-label"><span class="qf-dot" style="background:var(--blue)"></span>INFO</span>
+        <span class="qf-count" id="qf-info">0</span>
+      </div>
+      <div class="qf-item" onclick="filterLevel('WARN')">
+        <span class="qf-label"><span class="qf-dot" style="background:var(--amber)"></span>WARN</span>
+        <span class="qf-count" id="qf-warn">0</span>
+      </div>
+      <div class="qf-item" onclick="filterLevel('ERROR')">
+        <span class="qf-label"><span class="qf-dot" style="background:var(--red)"></span>ERROR</span>
+        <span class="qf-count" id="qf-err">0</span>
+      </div>
+      <div class="qf-item" onclick="filterLevel('DEBUG')">
+        <span class="qf-label"><span class="qf-dot" style="background:var(--purple)"></span>DEBUG</span>
+        <span class="qf-count" id="qf-dbg">0</span>
+      </div>
+    </div>
+  </nav>
+
+  <!-- MAIN -->
+  <main class="main">
+
+    <!-- Row 1: compact top strip -->
+    <div class="row">
+
+      <!-- Upload -->
+      <div class="panel upload-panel">
+        <div class="panel-title">Upload Log File</div>
+        <div class="drop-zone" id="dropZone">
+          <input type="file" id="fileInput" accept=".log,.txt,.json">
+          <div class="drop-icon">⬆</div>
+          <div class="drop-text">Drag &amp; Drop log file here</div>
+          <button class="btn" onclick="document.getElementById('fileInput').click();event.stopPropagation();">Browse File</button>
+        </div>
+        <div class="file-info" id="fileInfo"></div>
+        <div style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px;">
+          <div class="panel-title" style="margin-bottom:6px">Log Summary</div>
+          <div class="sum-list">
+            <div class="sum-row"><span class="sum-label-text">Total</span><span class="c-total" id="s-total">—</span></div>
+            <div class="sum-row"><span class="sum-label-text">Info</span><span class="c-info" id="s-info">—</span></div>
+            <div class="sum-row"><span class="sum-label-text">Warnings</span><span class="c-warn" id="s-warn">—</span></div>
+            <div class="sum-row"><span class="sum-label-text">Errors</span><span class="c-err" id="s-err">—</span></div>
+            <div class="sum-row"><span class="sum-label-text">Debug</span><span class="c-dbg" id="s-dbg">—</span></div>
+            <div class="sum-divider"></div>
+            <div class="sum-row"><span class="sum-label-text">Start</span><span style="color:var(--text2);font-size:10px" id="s-start">—</span></div>
+            <div class="sum-row"><span class="sum-label-text">End</span><span style="color:var(--text2);font-size:10px" id="s-end">—</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Visualization -->
+      <div class="panel vis-panel">
+        <div class="panel-title">System Visualization</div>
+        <div class="node-graph">
+          <div class="node" id="node-0"><div class="node-icon">📡</div><div class="node-name">Interceptor</div><div class="node-status" style="color:var(--text3)">idle</div></div>
+          <div class="arrow">→</div>
+          <div class="node" id="node-1"><div class="node-icon">🔍</div><div class="node-name">NLP Filter</div><div class="node-status" style="color:var(--text3)">idle</div></div>
+          <div class="arrow">→</div>
+          <div class="node" id="node-2"><div class="node-icon">🔐</div><div class="node-name">PQC Engine</div><div class="node-status" style="color:var(--text3)">idle</div></div>
+          <div class="arrow">→</div>
+          <div class="node" id="node-3"><div class="node-icon">🤖</div><div class="node-name">LLM Gateway</div><div class="node-status" style="color:var(--text3)">idle</div></div>
+          <div class="arrow">→</div>
+          <div class="node" id="node-4"><div class="node-icon">📊</div><div class="node-name">Audit Logger</div><div class="node-status" style="color:var(--text3)">idle</div></div>
+        </div>
+        <div class="panel-title" style="margin-bottom:4px">Activity Timeline</div>
+        <div class="timeline-wrap">
+          <canvas id="timelineChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Alerts -->
+      <div class="panel alerts-panel">
+        <div class="panel-title">Alerts Overview</div>
+        <div class="donut-wrap">
+          <canvas id="donutChart" width="100" height="100"></canvas>
+          <div class="donut-center">
+            <div class="donut-total" id="donut-total">0</div>
+            <div class="donut-sub">Total</div>
+          </div>
+        </div>
+        <div class="alert-items">
+          <div class="alert-row"><span class="alert-dot-label"><span class="alert-bullet" style="background:var(--red)"></span>Errors</span><span class="alert-count c-err" id="a-err">0</span></div>
+          <div class="alert-row"><span class="alert-dot-label"><span class="alert-bullet" style="background:var(--amber)"></span>Warnings</span><span class="alert-count c-warn" id="a-warn">0</span></div>
+          <div class="alert-row"><span class="alert-dot-label"><span class="alert-bullet" style="background:var(--blue)"></span>Info</span><span class="alert-count c-info" id="a-info">0</span></div>
+          <div class="alert-row"><span class="alert-dot-label"><span class="alert-bullet" style="background:var(--purple)"></span>Debug</span><span class="alert-count c-dbg" id="a-debug">0</span></div>
+        </div>
+        <div class="top-errors">
+          <div class="panel-title" style="margin-bottom:6px">Top Error Messages</div>
+          <div id="topErrors"><div style="color:var(--text3);font-size:11px;font-family:var(--font-mono)">No errors yet</div></div>
+        </div>
+      </div>
+
+    </div><!-- /row 1 -->
+
+    <!-- Row 2: tall log viewer -->
+    <div class="panel log-panel">
+      <div class="log-header">
+        <div class="panel-title" style="margin-bottom:0">Log Viewer</div>
+        <button class="icon-btn" onclick="exportLogs()">⬇ Export CSV</button>
+      </div>
+      <div class="log-controls">
+        <div class="search-box">
+          <span style="color:var(--text3);font-size:13px">⌕</span>
+          <input id="searchInput" placeholder="Search logs…" oninput="renderTable()">
+        </div>
+        <select class="filter-sel" id="levelFilter" onchange="renderTable()">
+          <option value="">All Levels</option>
+          <option value="INFO">INFO</option>
+          <option value="WARN">WARN</option>
+          <option value="ERROR">ERROR</option>
+          <option value="DEBUG">DEBUG</option>
+        </select>
+        <select class="filter-sel" id="srcFilter" onchange="renderTable()">
+          <option value="">All Sources</option>
+        </select>
+        <button class="icon-btn" onclick="clearFilters()">✕ Clear</button>
+      </div>
+      <div class="table-wrap">
+        <table class="log-table">
+          <thead>
+            <tr>
+              <th style="width:160px">Time</th>
+              <th style="width:80px">Level</th>
+              <th style="width:140px">Source</th>
+              <th>Message</th>
+            </tr>
+          </thead>
+          <tbody id="logBody">
+            <tr><td colspan="4"><div class="empty-state"><div class="empty-icon">📂</div>Upload a log file to begin analysis</div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+  // ── STATE ──────────────────────────────────────────────────────────
+  let logs          = [];
+  let donutChart    = null;
+  let timelineChart = null;
+
+  // ── CLOCK ──────────────────────────────────────────────────────────
+  function tick() { document.getElementById('clock').textContent = new Date().toLocaleTimeString(); }
+  tick(); setInterval(tick, 1000);
+
+  // ── LOG PARSING ────────────────────────────────────────────────────
+  const LEVEL_WORDS = ['INFO','WARN','WARNING','ERROR','DEBUG','CRITICAL','FATAL','NOTICE','TRACE'];
+  const PATTERNS = [
+    /^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+\[?(\w+)\]?\s+(\S+)\s*[-:]?\s*(.+)$/,
+    /^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+(\w+)\s*[-:]?\s*(.+)$/,
+    /^\[(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?)\]\s*\[?(\w+)\]?\s+(\S+)\s*[-:]?\s*(.+)$/,
+    /^(\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+(\w+)\s+(\S+)\s+(.+)$/,
+  ];
+
+  function guessLevel(line) {
+    const u = line.toUpperCase();
+    if (u.includes('ERROR') || u.includes('FATAL') || u.includes('CRITICAL')) return 'ERROR';
+    if (u.includes('WARN'))  return 'WARN';
+    if (u.includes('DEBUG') || u.includes('TRACE')) return 'DEBUG';
+    return 'INFO';
+  }
+
+  function guessSource(line) {
+    const m = line.match(/\b([A-Z][a-zA-Z]+(?:Manager|Service|Engine|Module|Processor|Handler|Controller|Filter|Logger))\b/);
+    return m ? m[1] : '';
+  }
+
+  function parseLogs(text) {
+    const result = [];
+    for (const line of text.split('\n').filter(l => l.trim())) {
+      let matched = false;
+      for (const p of PATTERNS) {
+        const m = line.match(p);
+        if (m) {
+          const levelRaw = (m[2] || '').toUpperCase();
+          const level    = LEVEL_WORDS.includes(levelRaw) ? levelRaw : guessLevel(line);
+          const hasSrc   = m.length > 4;
+          result.push({ time: m[1] || '', level, source: hasSrc ? (m[3] || '') : guessSource(line), message: (hasSrc ? m[4] : m[3] || '').trim(), raw: line });
+          matched = true; break;
+        }
+      }
+      if (!matched) result.push({ time: '', level: guessLevel(line), source: guessSource(line), message: line.trim(), raw: line });
+    }
+    return result;
+  }
+
+  function parseJsonLogs(json) {
+    const arr = Array.isArray(json) ? json : [json];
+    return arr.map(j => ({
+      time:    j.timestamp || j.time || j.ts || j['@timestamp'] || '',
+      level:   (j.level || j.severity || j.lvl || 'INFO').toUpperCase(),
+      source:  j.source || j.logger || j.module || j.component || '',
+      message: j.message || j.msg || j.text || JSON.stringify(j),
+      raw:     JSON.stringify(j),
+    }));
+  }
+
+  // ── STATS ──────────────────────────────────────────────────────────
+  function computeStats() {
+    const c = { INFO: 0, WARN: 0, WARNING: 0, ERROR: 0, DEBUG: 0 };
+    for (const l of logs) c[l.level] = (c[l.level] || 0) + 1;
+    return { info: c.INFO, warn: c.WARN + c.WARNING, err: c.ERROR, dbg: c.DEBUG, total: logs.length };
+  }
+
+  // ── UPDATE UI ──────────────────────────────────────────────────────
+  function updateSummary() {
+    const s = computeStats();
+    document.getElementById('s-total').textContent     = s.total;
+    document.getElementById('s-info').textContent      = s.info;
+    document.getElementById('s-warn').textContent      = s.warn;
+    document.getElementById('s-err').textContent       = s.err;
+    document.getElementById('s-dbg').textContent       = s.dbg;
+    document.getElementById('qf-info').textContent     = s.info;
+    document.getElementById('qf-warn').textContent     = s.warn;
+    document.getElementById('qf-err').textContent      = s.err;
+    document.getElementById('qf-dbg').textContent      = s.dbg;
+    document.getElementById('a-err').textContent       = s.err;
+    document.getElementById('a-warn').textContent      = s.warn;
+    document.getElementById('a-info').textContent      = s.info;
+    document.getElementById('a-debug').textContent     = s.dbg;
+    document.getElementById('donut-total').textContent = s.total;
+    const times = logs.map(l => l.time).filter(Boolean).sort();
+    document.getElementById('s-start').textContent = times[0] || '—';
+    document.getElementById('s-end').textContent   = times[times.length - 1] || '—';
+    document.getElementById('sys-status').textContent = s.total > 0 ? `Running — ${s.total} logs loaded` : 'Idle — Upload a log file';
+  }
+
+  function updateDonut() {
+    const s = computeStats();
+    const ctx = document.getElementById('donutChart').getContext('2d');
+    if (donutChart) donutChart.destroy();
+    donutChart = new Chart(ctx, {
+      type: 'doughnut',
+      data: { labels: ['Errors','Warnings','Info','Debug'], datasets: [{ data: [s.err, s.warn, s.info, s.dbg], backgroundColor: ['#ff4757','#ffa502','#4fc3f7','#a55eea'], borderWidth: 0, hoverOffset: 4 }] },
+      options: { responsive: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => `${c.label}: ${c.raw}` } } }, cutout: '65%' },
+    });
+  }
+
+  function updateTimeline() {
+    const buckets = {};
+    for (const l of logs) {
+      const key = (l.time || 'unknown').substring(0, 13);
+      if (!buckets[key]) buckets[key] = { INFO: 0, WARN: 0, ERROR: 0, DEBUG: 0 };
+      buckets[key][l.level] = (buckets[key][l.level] || 0) + 1;
+    }
+    const keys   = Object.keys(buckets).sort().slice(-20);
+    const labels = keys.map(k => k.split('T')[1] || k.split(' ')[1] || k);
+    const ctx    = document.getElementById('timelineChart').getContext('2d');
+    if (timelineChart) timelineChart.destroy();
+    timelineChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          { label: 'Info',  data: keys.map(k => (buckets[k]||{}).INFO||0),  borderColor: '#4fc3f7', backgroundColor: 'rgba(79,195,247,.08)',  fill: true, tension: .4, pointRadius: 0, borderWidth: 1.5 },
+          { label: 'Error', data: keys.map(k => (buckets[k]||{}).ERROR||0), borderColor: '#ff4757', backgroundColor: 'rgba(255,71,87,.06)',    fill: true, tension: .4, pointRadius: 0, borderWidth: 1.5 },
+          { label: 'Warn',  data: keys.map(k => ((buckets[k]||{}).WARN||0) + ((buckets[k]||{}).WARNING||0)), borderColor: '#ffa502', backgroundColor: 'rgba(255,165,2,.06)', fill: true, tension: .4, pointRadius: 0, borderWidth: 1.5 },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { color: '#4a5a80', font: { size: 9 } }, grid: { color: 'rgba(30,45,74,.5)' }, border: { color: 'rgba(30,45,74,.5)' } },
+          y: { ticks: { color: '#4a5a80', font: { size: 9 } }, grid: { color: 'rgba(30,45,74,.5)' }, border: { color: 'rgba(30,45,74,.5)' } },
+        },
+      },
+    });
+  }
+
+  function updateNodes() {
+    const s = computeStats();
+    const defs = [
+      { status: s.total > 0 ? 'info'  : '',      label: s.total > 0 ? `${s.total} pkts`   : 'idle' },
+      { status: s.err > 0 ? 'error' : s.warn > 0 ? 'warn' : s.total > 0 ? 'info' : '', label: s.err > 0 ? `${s.err} blocked` : s.warn > 0 ? `${s.warn} flagged` : s.total > 0 ? 'clean' : 'idle' },
+      { status: s.total > 0 ? 'info'  : '',      label: s.total > 0 ? 'encrypted'          : 'idle' },
+      { status: s.total > 0 ? 'info'  : '',      label: s.total > 0 ? 'forwarding'         : 'idle' },
+      { status: s.total > 0 ? 'info'  : '',      label: s.total > 0 ? `${s.total} logged`  : 'idle' },
+    ];
+    const colorMap = { info: 'var(--green)', warn: 'var(--amber)', error: 'var(--red)' };
+    defs.forEach((d, i) => {
+      const node = document.getElementById(`node-${i}`);
+      node.className = 'node' + (d.status ? ` s-${d.status}` : '');
+      const el = node.querySelector('.node-status');
+      el.textContent = d.label;
+      el.style.color = colorMap[d.status] || 'var(--text3)';
+    });
+  }
+
+  function updateTopErrors() {
+    const errMap = {};
+    for (const l of logs) {
+      if (l.level === 'ERROR') { const k = l.message.substring(0, 45); errMap[k] = (errMap[k] || 0) + 1; }
+    }
+    const sorted = Object.entries(errMap).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    const max    = sorted[0] ? sorted[0][1] : 1;
+    const cont   = document.getElementById('topErrors');
+    if (!sorted.length) { cont.innerHTML = '<div style="color:var(--text3);font-size:11px;font-family:var(--font-mono)">No errors found</div>'; return; }
+    cont.innerHTML = sorted.map(([msg, n]) => `
+      <div class="err-item">
+        <div class="err-msg" title="${msg}">${msg}</div>
+        <div class="err-bar-wrap"><div class="err-bar" style="width:${Math.round(n / max * 100)}%"></div></div>
+        <div class="err-n">${n}</div>
+      </div>`).join('');
+  }
+
+  function updateSrcFilter() {
+    const sources = [...new Set(logs.map(l => l.source).filter(Boolean))].sort();
+    document.getElementById('srcFilter').innerHTML =
+      '<option value="">All Sources</option>' + sources.map(s => `<option value="${s}">${s}</option>`).join('');
+  }
+
+  // ── TABLE ──────────────────────────────────────────────────────────
+  function escapeHtml(str) {
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function renderTable() {
+    const search   = document.getElementById('searchInput').value.toLowerCase();
+    const level    = document.getElementById('levelFilter').value;
+    const src      = document.getElementById('srcFilter').value;
+    const filtered = logs.filter(l => {
+      if (level && l.level !== level && !(level === 'WARN' && l.level === 'WARNING')) return false;
+      if (src   && l.source !== src)  return false;
+      if (search && !l.raw.toLowerCase().includes(search)) return false;
+      return true;
+    }).slice(0, 500);
+    const body = document.getElementById('logBody');
+    if (!filtered.length) {
+      body.innerHTML = '<tr><td colspan="4"><div class="empty-state"><div class="empty-icon">🔍</div>No matching log entries</div></td></tr>';
+      return;
+    }
+    body.innerHTML = filtered.map(l => `
+      <tr>
+        <td style="color:var(--text3)">${l.time || '—'}</td>
+        <td><span class="badge badge-${l.level}">${l.level}</span></td>
+        <td style="color:var(--blue2)">${escapeHtml(l.source || '—')}</td>
+        <td style="color:var(--text)">${escapeHtml(l.message)}</td>
+      </tr>`).join('');
+  }
+
+  function filterLevel(level) { document.getElementById('levelFilter').value = level; renderTable(); }
+  function clearFilters()      { document.getElementById('levelFilter').value = ''; document.getElementById('srcFilter').value = ''; document.getElementById('searchInput').value = ''; renderTable(); }
+
+  // ── EXPORT ─────────────────────────────────────────────────────────
+  function exportLogs() {
+    if (!logs.length) return alert('No logs to export.');
+    const csv  = 'Time,Level,Source,Message\n' + logs.map(l => `"${l.time}","${l.level}","${l.source}","${l.message.replace(/"/g,'""')}"`).join('\n');
+    const a    = document.createElement('a');
+    a.href     = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
+    a.download = 'quantum_guard_logs.csv';
+    a.click();
+  }
+
+// ✅ KEEP THIS AT TOP LEVEL (GLOBAL)
+function refreshAll() {
+  updateSummary();
+  updateDonut();
+  updateTimeline();
+  updateNodes();
+  updateTopErrors();
+  updateSrcFilter();
+  renderTable();
+}
+// FUNCTION PROCESSING
+ function processFile(file) {
+  const info = document.getElementById('fileInfo');
+  info.style.display = 'block';
+  info.textContent = `⬤ ${file.name} (${Math.round(file.size / 1024)} KB)`;
+
+  const reader = new FileReader();
+
+  reader.onload = e => {
+
+    // ✅ STEP 1: Parse logs FIRST
+    try {
+      logs = parseJsonLogs(JSON.parse(e.target.result));
+    } catch (_) {
+      logs = parseLogs(e.target.result);
+    }
+
+    // ❗ SAFETY: remove empty logs (THIS FIXES YOUR 500 ERROR)
+    logs = logs.filter(l => 
+      (l.message && l.message.trim() !== "") ||
+      (l.raw && l.raw.trim() !== "")
+    );
+
+    // ✅ STEP 2: Show original logs
+    refreshAll();
+
+    // ❗ EXTRA SAFETY: stop if nothing valid
+    if (logs.length === 0) {
+      console.warn("No valid logs found.");
+      return;
+    }
+
+    // ✅ STEP 3: Prepare logs
+const combinedLogs = logs
+  .map(l => l.message || l.raw || "")
+  .filter(msg => msg && msg.trim() !== "")
+  .join("\n");
+
+// 🔥 Check before sending
+if (!combinedLogs || combinedLogs.trim() === "") {
+  console.error("❌ EMPTY DATA — NOT SENDING TO BACKEND");
+  return;
+}
+
+// ✅ NOW log it
+console.log("SENDING TO BACKEND:", combinedLogs);
+
+// ✅ Send to backend
+fetch("http://127.0.0.1:8000/analyze", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json"
+  },
+  body: JSON.stringify({
+    text: combinedLogs
+  })
+})
+    .then(res => {
+      if (!res.ok) {
+        throw new Error("Backend returned error " + res.status);
+      }
+      return res.json();
+    })
+    .then(data => {
+  console.log("NLP RESPONSE:", data);
+
+  if (data.logs) {
+
+    const nlpLogs = data.logs.map(l => ({
+      level: l.level || "INFO"
+    }));
+
+    // ✅ KEEP original logs, only update level
+    logs = logs.map((log, i) => ({
+      ...log,
+      level: nlpLogs[i]?.level || log.level
+    }));
+
+    refreshAll(); // 🔥 update UI
+  }
+})
+    .catch(err => {
+      console.error("Backend error:", err);
+    });
+  };
+
+  reader.readAsText(file);
+}
+ document.getElementById('fileInput').addEventListener('change', e => {
+  if (e.target.files[0]) processFile(e.target.files[0]);
+});
+
+const dz = document.getElementById('dropZone');
+
+dz.addEventListener('dragover', e => {
+  e.preventDefault();
+  dz.classList.add('drag');
+});
+
+dz.addEventListener('dragleave', () => {
+  dz.classList.remove('drag');
+});
+
+dz.addEventListener('drop', e => {
+  e.preventDefault();
+  dz.classList.remove('drag');
+  if (e.dataTransfer.files[0]) processFile(e.dataTransfer.files[0]);
+});
+
+  // ── DEMO DATA ──────────────────────────────────────────────────────
+  const DEMO = `2025-05-20 10:15:23.112 INFO Interceptor Proxy started on port 8000
+2025-05-20 10:15:23.890 INFO NLP Filter spaCy model en_core_web_lg loaded
+2025-05-20 10:15:24.001 INFO PQC Engine ML-KEM-768 handshake initialized
+2025-05-20 10:32:11.223 INFO Interceptor Request intercepted from user@corp.com
+2025-05-20 10:32:11.445 WARN NLP Filter Potential PII detected: PERSON entity found
+2025-05-20 10:32:11.890 ERROR NLP Filter Leak score 0.87 exceeded threshold 0.70 -- request BLOCKED
+2025-05-20 10:33:01.002 INFO Interceptor Request intercepted from dev@corp.com
+2025-05-20 10:33:01.220 INFO NLP Filter Leak score 0.12 -- content safe
+2025-05-20 10:33:01.340 INFO PQC Engine Kyber-768 key encapsulation complete
+2025-05-20 10:33:01.560 INFO LLM Gateway Request forwarded to api.openai.com
+2025-05-20 10:33:02.100 INFO AuditLogger Event logged: PASS user=dev@corp.com
+2025-05-20 10:35:44.000 ERROR NLP Filter API key pattern detected: sk-proj-... -- BLOCKED
+2025-05-20 10:38:12.500 WARN NLP Filter ORG entity count high: 4 company names found
+2025-05-20 10:40:00.000 DEBUG PQC Engine Rekeying session after 100 requests
+2025-05-20 10:41:33.889 ERROR NLP Filter Source code block detected -- BLOCKED
+2025-05-20 10:42:01.002 INFO Interceptor Request intercepted from analyst@corp.com
+2025-05-20 10:42:01.440 INFO NLP Filter Leak score 0.08 -- content safe
+2025-05-20 10:42:01.670 INFO PQC Engine Encrypted with AES-256-GCM
+2025-05-20 10:42:02.010 INFO LLM Gateway Forwarded -- response 200 OK
+2025-05-20 10:44:15.333 WARN Interceptor Request size unusually large: 48KB
+2025-05-20 10:44:15.620 ERROR NLP Filter Proprietary algorithm pattern detected -- BLOCKED
+2025-05-20 10:45:00.000 DEBUG AuditLogger Flushing log buffer to disk`;
+
+  logs = parseLogs(DEMO);
+  document.getElementById('fileInfo').style.display = 'block';
+  document.getElementById('fileInfo').textContent   = '⬤ demo_quantum_guard.log  (sample data)';
+  refreshAll();
+  async function sendToBackend(message) {
+  try {
+    const res = await fetch("http://127.0.0.1:8000/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        messages: [
+          { role: "user", content: message }
+        ]
+      })
+    });
+
+    const data = await res.json();
+
+    console.log("Backend response:", data);
+
+    if (!res.ok) {
+      alert("❌ BLOCKED: " + (data.reasons || "Sensitive content detected"));
+    } else {
+      alert("✅ SAFE\nAI Response: " + data.choices[0].message.content);
+    }
+
+  } catch (err) {
+    console.error(err);
+    alert("⚠ Backend not reachable");
+  }
+}
+</script>
+</body>
+</html>
